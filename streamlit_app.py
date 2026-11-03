@@ -61,11 +61,33 @@ if "messages" not in st.session_state:
 
 # APPLICATION TITLE
 
-st.title("🤖 AI Engineering Chatbot")
 
-st.caption(
-    "Your personal AI Engineering tutor powered by RAG"
-)
+st.markdown("""
+<div style="
+    padding: 22px 18px;
+    border-radius: 16px;
+    background: linear-gradient(120deg, #111827, #1E3150, #172554);
+    border: 1px solid rgba(100,160,255,0.25);
+    text-align: center;
+    margin-bottom: 20px;
+">
+    <h1 style="
+        margin: 0;
+        font-size: 43px;
+        font-weight: 850;
+        letter-spacing: -1.5px;
+        color: #FFFFFF;
+    ">
+        AI <span style="
+            background: linear-gradient(90deg, #60A5FA, #A78BFA);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        ">SPARK ⚡</span>
+    </h1>  
+    YOUR AI ENGINEERING COMPANION
+</div>
+""", unsafe_allow_html=True)
+
 
 
 # DISPLAY PREVIOUS CONVERSATION
@@ -139,7 +161,7 @@ with st.container(key="chat_composer"):
     with st.form("chat_form", clear_on_submit=True):
 
         input_col, send_col, clear_col = st.columns(
-            [7, 1.3, 1.3]
+            [7, 0.5, 0.5]
         )
 
         with input_col:
@@ -151,13 +173,13 @@ with st.container(key="chat_composer"):
 
         with send_col:
             send_clicked = st.form_submit_button(
-                "Send",
+                "➤",
                 use_container_width=True
             )
 
         with clear_col:
             clear_clicked = st.form_submit_button(
-                "Clear",
+                "🗑️",
                 type="secondary",
                 use_container_width=True
             )
