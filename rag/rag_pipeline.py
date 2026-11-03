@@ -5,23 +5,18 @@ from pathlib import Path
 from groq import Groq
 from dotenv import load_dotenv
 
-from .pdf_loader import extract_text_from_pdf
-from .text_chunker import chunk_text
+from .pdf_loader import load_all_pdfs
+from .text_chunker import chunk_all_documents
 from .embedding import generate_embeddings
 from .faiss_store import create_faiss_index
 
 
-# ==========================================
-# 1. LOAD ENVIRONMENT VARIABLES
-# ==========================================
+# PROJECT CONFIGURATION
 
-# Locate project root
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-# Load .env file
 load_dotenv(PROJECT_ROOT / ".env")
 
-# Initialize Groq client
 api_key = os.getenv("GROQ_API_KEY")
 
 if not api_key:
@@ -32,94 +27,94 @@ client = Groq(api_key=api_key)
 MODEL_NAME = "openai/gpt-oss-120b"
 
 
-# ==========================================
-# 2. CREATE RAG PIPELINE
-# ==========================================
+# CREATE RAG PIPELINE
 
 def create_rag_pipeline():
 
-    # Locate PDF
-    pdf_path = (
-        PROJECT_ROOT
-        / "documents"
-        / "ai_engineering_rag_practice_guide.pdf"
-    )
+    documents_folder = PROJECT_ROOT / "documents"
 
-    if not pdf_path.exists():
-        raise FileNotFoundError(f"PDF not found: {pdf_path}")
+    print("Loading all PDF documents...")
 
-    # Extract PDF text
-    print("Loading PDF...")
+    documents = load_all_pdfs(documents_folder)
 
-    text = extract_text_from_pdf(pdf_path)
+    if not documents:
+        raise ValueError("No PDF content found.")
 
-    if not text.strip():
-        raise ValueError("No text could be extracted from the PDF.")
+    print("Creating text chunks...")
 
-    # Create text chunks
-    print("\nCreating text chunks...")
+    all_chunks = chunk_all_documents(documents)
 
-    chunks = chunk_text(text)
+    if not all_chunks:
+        raise ValueError("No chunks created.")
 
-    if not chunks:
-        raise ValueError("No text chunks found.")
+    print("Generating embeddings...")
 
-    print("Total chunks:", len(chunks))
+    texts = [
+        chunk["text"]
+        for chunk in all_chunks
+    ]
 
-    # Generate embeddings
-    print("\nGenerating embeddings...")
+    embeddings = generate_embeddings(texts)
 
-    embeddings = generate_embeddings(chunks)
-
-    # Create FAISS index
-    print("\nCreating FAISS index...")
+    print("Creating FAISS index...")
 
     index = create_faiss_index(embeddings)
 
     print("RAG pipeline initialized successfully!")
 
-    return chunks, index
+    print("Total pages:", len(documents))
+    print("Total chunks:", len(all_chunks))
+
+    return all_chunks, index
 
 
-# ==========================================
-# 3. RETRIEVE RELEVANT PDF CONTENT
-# ==========================================
+# RETRIEVE RELEVANT CONTEXT
 
-def retrieve_context(question, chunks, index, top_k=3):
+def retrieve_context(question, all_chunks, index, top_k=3):
 
-    # Generate question embedding
     query_embedding = generate_embeddings([question])
 
-    # Search FAISS index
     scores, indices = index.search(
         query_embedding,
-        min(top_k, len(chunks))
+        min(top_k, len(all_chunks))
     )
 
-    # Retrieve relevant chunks
     relevant_chunks = []
 
     for idx in indices[0]:
 
         if idx != -1:
-            relevant_chunks.append(chunks[idx])
 
-    # Combine retrieved content
+            chunk = all_chunks[idx]
+
+            source_info = (
+                f"Source: {chunk['source']}, "
+                f"Page: {chunk['page']}"
+            )
+
+            relevant_chunks.append(
+                f"{source_info}\n{chunk['text']}"
+            )
+
     context = "\n\n".join(relevant_chunks)
 
     return context
 
 
-# ==========================================
-# 4. GENERATE NON-STREAMING ANSWER
-# ==========================================
+# PREPARE MESSAGES WITH CONVERSATION MEMORY
 
-def ask_question(question, chunks, index, top_k=3):
+def prepare_messages(
+    question,
+    all_chunks,
+    index,
+    conversation_history=None,
+    top_k=3
+):
 
-    # Retrieve relevant context
+    # Retrieve relevant PDF context
     context = retrieve_context(
         question,
-        chunks,
+        all_chunks,
         index,
         top_k
     )
@@ -129,27 +124,67 @@ def ask_question(question, chunks, index, top_k=3):
             "role": "system",
             "content": (
                 "You are an AI Engineering tutor. "
-                "Answer the user's question using the provided PDF context. "
-                "If the answer is not available in the context, "
-                "clearly say that the information is not available "
-                "in the provided document. Do not invent facts."
+                "Explain technical concepts clearly and simply. "
+                "Provide practical examples and Python code when useful. "
+                "Use the provided PDF context as your knowledge source. "
+                "Use previous conversation messages to understand "
+                "follow-up questions and references. "
+                "Mention the source PDF and page number when useful. "
+                "If the answer is not available in the provided context, "
+                "clearly say so. Do not invent facts."
             )
-        },
-        {
-            "role": "user",
-            "content": f"""
-Context from PDF:
-{context}
-
-User Question:
-{question}
-
-Answer based on the PDF context.
-"""
         }
     ]
 
-    # Call Groq
+    # Add previous conversation messages
+    if conversation_history:
+
+        for message in conversation_history:
+
+            if message["role"] in ["user", "assistant"]:
+
+                messages.append({
+                    "role": message["role"],
+                    "content": message["content"]
+                })
+
+    # Add current question with retrieved context
+    messages.append({
+        "role": "user",
+        "content": f"""
+Relevant context retrieved from the PDFs:
+
+{context}
+
+Current question:
+
+{question}
+
+Answer using the retrieved PDF context and previous conversation.
+"""
+    })
+
+    return messages
+
+
+# NON-STREAMING RESPONSE
+
+def ask_question(
+    question,
+    all_chunks,
+    index,
+    conversation_history=None,
+    top_k=3
+):
+
+    messages = prepare_messages(
+        question,
+        all_chunks,
+        index,
+        conversation_history,
+        top_k
+    )
+
     response = client.chat.completions.create(
         model=MODEL_NAME,
         messages=messages,
@@ -159,53 +194,31 @@ Answer based on the PDF context.
     return response.choices[0].message.content
 
 
-# ==========================================
-# 5. GENERATE STREAMING ANSWER
-# ==========================================
+# STREAMING RESPONSE
 
-def ask_question_stream(question, chunks, index, top_k=3):
 
-    # Retrieve relevant context
-    context = retrieve_context(
+def ask_question_stream(
+    question,
+    all_chunks,
+    index,
+    conversation_history=None,
+    top_k=3
+):
+
+    messages = prepare_messages(
         question,
-        chunks,
+        all_chunks,
         index,
+        conversation_history,
         top_k
     )
 
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are an AI Engineering tutor. "
-                "Answer the user's question using the provided PDF context. "
-                "If the answer is not available in the context, "
-                "clearly say that the information is not available "
-                "in the provided document. Do not invent facts."
-            )
-        },
-        {
-            "role": "user",
-            "content": f"""
-Context from PDF:
-{context}
-
-User Question:
-{question}
-
-Answer based on the PDF context.
-"""
-        }
-    ]
-
-    # Call Groq with streaming enabled
     response = client.chat.completions.create(
         model=MODEL_NAME,
         messages=messages,
         stream=True
     )
 
-    # Yield response piece by piece
     for chunk in response:
 
         content = chunk.choices[0].delta.content
@@ -214,16 +227,17 @@ Answer based on the PDF context.
             yield content
 
 
-# ==========================================
-# 6. TEST RAG PIPELINE
-# ==========================================
+
+# TERMINAL CHATBOT TEST
 
 if __name__ == "__main__":
 
-    # Initialize pipeline
-    chunks, index = create_rag_pipeline()
+    all_chunks, index = create_rag_pipeline()
+
+    conversation_history = []
 
     print("\nAI Engineering PDF Chatbot is ready!")
+
     print("Type 'exit' to stop.")
 
     while True:
@@ -231,7 +245,9 @@ if __name__ == "__main__":
         question = input("\nYou: ").strip()
 
         if question.lower() == "exit":
+
             print("Goodbye!")
+
             break
 
         if not question:
@@ -239,12 +255,30 @@ if __name__ == "__main__":
 
         print("\nAI Tutor: ", end="", flush=True)
 
-        # Generate streaming answer
+        answer_parts = []
+
         for content in ask_question_stream(
             question,
-            chunks,
-            index
+            all_chunks,
+            index,
+            conversation_history
         ):
+
             print(content, end="", flush=True)
 
+            answer_parts.append(content)
+
         print()
+
+        answer = "".join(answer_parts)
+
+        # Save conversation for the next question
+        conversation_history.append({
+            "role": "user",
+            "content": question
+        })
+
+        conversation_history.append({
+            "role": "assistant",
+            "content": answer
+        })

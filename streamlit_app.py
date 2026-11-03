@@ -7,9 +7,7 @@ from rag.rag_pipeline import (
 )
 
 
-# ==========================================
-# 1. CONFIGURE STREAMLIT PAGE
-# ==========================================
+# CONFIGURE STREAMLIT PAGE
 
 st.set_page_config(
     page_title="AI Engineering Chatbot",
@@ -18,33 +16,23 @@ st.set_page_config(
 )
 
 
-# ==========================================
-# 2. LOAD RAG PIPELINE
-# ==========================================
+# LOAD RAG PIPELINE
 
 @st.cache_resource
 def load_rag_pipeline():
-
-    chunks, index = create_rag_pipeline()
-
-    return chunks, index
+    return create_rag_pipeline()
 
 
 try:
-
     with st.spinner("Loading AI Engineering knowledge base..."):
-
         chunks, index = load_rag_pipeline()
 
 except Exception as e:
-
     st.error(f"Failed to load RAG pipeline: {e}")
     st.stop()
 
 
-# ==========================================
-# 3. SYSTEM PROMPT
-# ==========================================
+# SYSTEM PROMPT
 
 system_prompt = """
 You are an AI Engineering tutor.
@@ -60,12 +48,9 @@ Your responsibilities:
 """
 
 
-# ==========================================
-# 4. INITIALIZE CONVERSATION MEMORY
-# ==========================================
+# INITIALIZE CONVERSATION MEMORY
 
 if "messages" not in st.session_state:
-
     st.session_state.messages = [
         {
             "role": "system",
@@ -74,9 +59,7 @@ if "messages" not in st.session_state:
     ]
 
 
-# ==========================================
-# 5. APPLICATION TITLE
-# ==========================================
+# APPLICATION TITLE
 
 st.title("🤖 AI Engineering Chatbot")
 
@@ -84,9 +67,8 @@ st.caption(
     "Your personal AI Engineering tutor powered by RAG"
 )
 
-# ==========================================
-# 6. DISPLAY PREVIOUS CONVERSATION
-# ==========================================
+
+# DISPLAY PREVIOUS CONVERSATION
 
 for message in st.session_state.messages:
 
@@ -94,15 +76,10 @@ for message in st.session_state.messages:
         continue
 
     with st.chat_message(message["role"]):
-
         st.markdown(message["content"])
 
 
-
-
-# ==========================================
-# 7. FIXED CHAT INPUT WITH CLEAR BUTTON
-# ==========================================
+# FIXED CHAT INPUT WITH CLEAR BUTTON
 
 st.markdown(
     """
@@ -112,14 +89,17 @@ st.markdown(
         bottom: 20px;
         left: 50%;
         transform: translateX(-50%);
-        width: min(736px, calc(100% - 40px));
+        width: min(850px, calc(100% - 40px));
         z-index: 1000;
         background: var(--background-color);
-        padding: 8px 0;
+        padding: 10px 12px;
+        border: 1px solid rgba(128, 128, 128, 0.25);
+        border-radius: 16px;
     }
 
     .st-key-chat_composer [data-testid="stHorizontalBlock"] {
         align-items: center;
+        gap: 10px;
     }
 
     .st-key-chat_composer [data-testid="stForm"] {
@@ -127,65 +107,81 @@ st.markdown(
         padding: 0;
     }
 
-    .st-key-chat_composer button {
-        height: 44px;
-    }
-
     .st-key-chat_composer input {
         height: 44px;
+        border-radius: 10px;
     }
 
-    /* Leave room for the fixed composer */
+    .st-key-chat_composer button {
+        height: 44px;
+        border-radius: 10px;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
     .main .block-container {
-        padding-bottom: 110px;
+        padding-bottom: 120px;
     }
     </style>
     """,
     unsafe_allow_html=True
 )
 
+
+# CHAT INPUT
+
 user_prompt = None
+send_clicked = False
+clear_clicked = False
 
 with st.container(key="chat_composer"):
 
-    input_col, clear_col = st.columns([6, 1])
+    with st.form("chat_form", clear_on_submit=True):
 
-    with input_col:
+        input_col, send_col, clear_col = st.columns(
+            [7, 1.3, 1.3]
+        )
 
-        with st.form("chat_form", clear_on_submit=True):
-
+        with input_col:
             user_prompt = st.text_input(
                 "Message",
                 placeholder="Ask me anything about AI Engineering...",
                 label_visibility="collapsed"
             )
 
-            submitted = st.form_submit_button(
+        with send_col:
+            send_clicked = st.form_submit_button(
                 "Send",
                 use_container_width=True
             )
 
-    with clear_col:
+        with clear_col:
+            clear_clicked = st.form_submit_button(
+                "Clear",
+                type="secondary",
+                use_container_width=True
+            )
 
-        if st.button("Clear", use_container_width=True):
 
-            st.session_state.messages = [
-                {
-                    "role": "system",
-                    "content": system_prompt
-                }
-            ]
+# CLEAR CONVERSATION
 
-            st.rerun()
+if clear_clicked:
 
-if not submitted:
-    user_prompt = None
+    st.session_state.messages = [
+        {
+            "role": "system",
+            "content": system_prompt
+        }
+    ]
 
-# ==========================================
-# 8. GENERATE RAG RESPONSE
-# ==========================================
+    st.rerun()
 
-if user_prompt:
+
+# PROCESS SUBMITTED QUESTION
+
+if send_clicked and user_prompt and user_prompt.strip():
+
+    user_prompt = user_prompt.strip()
 
     # Save user message
     st.session_state.messages.append({
@@ -195,7 +191,6 @@ if user_prompt:
 
     # Display user message
     with st.chat_message("user"):
-
         st.markdown(user_prompt)
 
     try:
@@ -207,7 +202,12 @@ if user_prompt:
                 ask_question_stream(
                     user_prompt,
                     chunks,
-                    index
+                    index,
+                    conversation_history=[
+                        message
+                        for message in st.session_state.messages
+                        if message["role"] in ["user", "assistant"]
+                    ]
                 )
             )
 

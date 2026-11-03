@@ -1,48 +1,54 @@
+
 from pathlib import Path
 
-from pdf_loader import extract_text_from_pdf
-from text_chunker import chunk_text
-from embedding import generate_embeddings
+from .pdf_loader import load_all_pdfs
+from .text_chunker import chunk_all_documents
+from .embedding import generate_embeddings
 
 
 if __name__ == "__main__":
 
-    # Locate project directory
     project_root = Path(__file__).resolve().parent.parent
 
-    # Locate PDF
-    pdf_path = (
-        project_root
-        / "documents"
-        / "ai_engineering_rag_practice_guide.pdf"
-    )
+    documents_folder = project_root / "documents"
 
-    # Step 1: Extract PDF text
-    print("Extracting PDF text...")
+    print("Loading all PDF documents...")
 
-    text = extract_text_from_pdf(pdf_path)
+    documents = load_all_pdfs(documents_folder)
 
-    # Step 2: Divide text into chunks
+    if not documents:
+        raise ValueError(
+            "No PDF content found. Check your documents folder."
+        )
+
+    print("Total pages loaded:", len(documents))
+
     print("\nCreating text chunks...")
 
-    chunks = chunk_text(text)
+    all_chunks = chunk_all_documents(documents)
 
-    print("Total chunks:", len(chunks))
+    if not all_chunks:
+        raise ValueError("No text chunks were created.")
 
-    # Step 3: Generate embeddings
+    print("Total chunks:", len(all_chunks))
+
     print("\nGenerating embeddings...")
 
-    embeddings = generate_embeddings(chunks)
+    texts = [chunk["text"] for chunk in all_chunks]
 
-    # Step 4: Display results
-    print("\nPDF EMBEDDINGS GENERATED")
-    print("=" * 40)
+    embeddings = generate_embeddings(texts)
 
-    print("Total chunks:", len(chunks))
+    print("\nALL PDF EMBEDDINGS GENERATED SUCCESSFULLY!")
+
+    print("Total pages:", len(documents))
+    print("Total chunks:", len(all_chunks))
     print("Embedding shape:", embeddings.shape)
 
-    print("\nFirst chunk:")
-    print(chunks[0])
+    print("\nFirst chunk source:")
+    print(all_chunks[0]["source"])
 
-    print("\nFirst chunk embedding:")
-    print(embeddings[0])
+    print("\nFirst chunk page:")
+    print(all_chunks[0]["page"])
+
+    print("\nFirst chunk text:")
+    print(all_chunks[0]["text"])

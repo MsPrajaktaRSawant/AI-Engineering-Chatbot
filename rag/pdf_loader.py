@@ -3,46 +3,40 @@ from pypdf import PdfReader
 
 
 def extract_text_from_pdf(pdf_path):
+    reader = PdfReader(pdf_path)
 
-    # Read PDF document
-    reader = PdfReader(str(pdf_path))
+    pages_text = []
 
-    extracted_text = []
-
-    # Extract text from every page
     for page_number, page in enumerate(reader.pages, start=1):
+        page_text = page.extract_text() or ""
 
-        text = page.extract_text() or ""
+        if page_text.strip():
+            pages_text.append({
+                "page": page_number,
+                "text": page_text
+            })
 
-        if text.strip():
-            extracted_text.append(text)
-
-        print(f"Processed page {page_number}")
-
-    # Combine all extracted pages
-    full_text = "\n".join(extracted_text)
-
-    return full_text
+    return pages_text
 
 
-if __name__ == "__main__":
+def load_all_pdfs(folder_path):
+    folder = Path(folder_path)
 
-    # Locate sample PDF
-    project_root = Path(__file__).resolve().parent.parent
+    # Automatically discover every PDF in the documents folder
+    pdf_files = sorted(folder.glob("*.pdf"))
 
-    pdf_path = (
-        project_root
-        / "documents"
-        / "ai_engineering_rag_practice_guide.pdf"
-    )
+    all_documents = []
 
-    # Extract PDF text
-    text = extract_text_from_pdf(pdf_path)
+    for pdf_path in pdf_files:
+        print(f"Processing PDF: {pdf_path.name}")
 
-    print("\nPDF EXTRACTION COMPLETED")
-    print("=" * 40)
+        pages = extract_text_from_pdf(pdf_path)
 
-    print("Total characters:", len(text))
+        for page_data in pages:
+            all_documents.append({
+                "source": pdf_path.name,
+                "page": page_data["page"],
+                "text": page_data["text"]
+            })
 
-    print("\nExtracted text preview:")
-    print(text[:2000])
+    return all_documents
